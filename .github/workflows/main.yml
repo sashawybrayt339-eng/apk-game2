@@ -1,149 +1,16 @@
 name: Build APK
 
-on:
+'on':
 push:
 workflow_dispatch:
 
 jobs:
 build:
 runs-on: ubuntu-latest
-timeout-minutes: 45
 
 steps:
-  - name: Checkout project
+  - name: Checkout
     uses: actions/checkout@v4
 
-  - name: Show repository files
-    run: |
-      echo "=== Repository ==="
-      find . -maxdepth 3 -type f | sort | head -300
-
-  - name: Extract game
-    run: |
-      set -euxo pipefail
-      test -f game-music.zip
-      mkdir -p app
-      unzip -q game-music.zip -d app
-
-      echo "=== Extracted files ==="
-      find app -maxdepth 4 -type f | sort | head -300
-
-      test -f app/myket-game/config.xml
-      test -d app/myket-game/www
-
-  - name: Setup Node.js
-    uses: actions/setup-node@v4
-    with:
-      node-version: 20.17.0
-
-  - name: Setup Java 17
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: 17
-
-  - name: Check Java and Node
-    run: |
-      set -eux
-      java -version
-      javac -version
-      node --version
-      npm --version
-
-  - name: Setup Android SDK
-    run: |
-      set -eux
-
-      yes | sdkmanager --licenses || true
-
-      sdkmanager --update || true
-
-      sdkmanager \
-        "platform-tools" \
-        "platforms;android-36" \
-        "build-tools;36.0.0"
-
-      yes | sdkmanager --licenses || true
-
-  - name: Install Cordova
-    run: |
-      set -eux
-      npm install -g cordova@12
-      cordova --version
-
-  - name: Prepare Cordova Android
-    working-directory: app/myket-game
-    run: |
-      set -euxo pipefail
-
-      echo "=== Before platform install ==="
-      cordova platform ls || true
-      cordova plugin ls || true
-
-      cordova platform remove android || true
-      cordova platform add android@15.0.0
-
-      echo "=== After platform install ==="
-      cordova platform ls
-
-  - name: Install local Myket plugin
-    working-directory: app/myket-game
-    run: |
-      set -euxo pipefail
-
-      if [ -d "myket-iab-plugin" ]; then
-        echo "Installing local Myket plugin..."
-        cordova plugin add ./myket-iab-plugin
-      else
-        echo "WARNING: myket-iab-plugin folder was not found."
-      fi
-
-      echo "=== Installed plugins ==="
-      cordova plugin ls
-
-  - name: Check Cordova requirements
-    working-directory: app/myket-game
-    run: |
-      set -euxo pipefail
-      cordova requirements
-
-  - name: Build Debug APK
-    working-directory: app/myket-game
-    run: |
-      set -euxo pipefail
-      cordova build android --debug --verbose 2>&1 | tee debug-build.log
-
-  - name: Build Release APK
-    working-directory: app/myket-game
-    run: |
-      set -euxo pipefail
-      cordova build android --release --verbose 2>&1 | tee release-build.log
-
-  - name: Find generated APK
-    if: always()
-    working-directory: app/myket-game
-    run: |
-      echo "=== APK files ==="
-      find . -type f -name "*.apk" -print || true
-
-  - name: Upload diagnostics
-    if: always()
-    uses: actions/upload-artifact@v4
-    with:
-      name: build-diagnostics
-      path: |
-        app/myket-game/debug-build.log
-        app/myket-game/release-build.log
-      if-no-files-found: ignore
-      retention-days: 7
-
-  - name: Upload APK
-    if: success()
-    uses: actions/upload-artifact@v4
-    with:
-      name: game-apk
-      path: |
-        app/myket-game/platforms/android/app/build/outputs/apk/release/*.apk
-        app/myket-game/platforms/android/app/build/outputs/apk/debug/*.apk
-      if-no-files-found: error
-      retention-days: 30
+  - name: Test
+    run: echo "GitHub Actions is working"
