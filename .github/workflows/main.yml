@@ -21,9 +21,7 @@ steps:
   - name: Extract game
     run: |
       set -euxo pipefail
-
       test -f game-music.zip
-
       mkdir -p app
       unzip -q game-music.zip -d app
 
@@ -70,9 +68,7 @@ steps:
   - name: Install Cordova
     run: |
       set -eux
-
       npm install -g cordova@12
-
       cordova --version
 
   - name: Prepare Cordova Android
@@ -115,14 +111,12 @@ steps:
     working-directory: app/myket-game
     run: |
       set -euxo pipefail
-
       cordova build android --debug --verbose 2>&1 | tee debug-build.log
 
   - name: Build Release APK
     working-directory: app/myket-game
     run: |
       set -euxo pipefail
-
       cordova build android --release --verbose 2>&1 | tee release-build.log
 
   - name: Find generated APK
@@ -132,9 +126,6 @@ steps:
       echo "=== APK files ==="
       find . -type f -name "*.apk" -print || true
 
-      echo "=== Build directories ==="
-      find platforms/android -maxdepth 7 -type d 2>/dev/null | sort | head -200 || true
-
   - name: Upload diagnostics
     if: always()
     uses: actions/upload-artifact@v4
@@ -143,7 +134,6 @@ steps:
       path: |
         app/myket-game/debug-build.log
         app/myket-game/release-build.log
-        app/myket-game/build.log
       if-no-files-found: ignore
       retention-days: 7
 
