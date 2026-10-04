@@ -7,66 +7,69 @@ workflow_dispatch:
 jobs:
 build:
 runs-on: ubuntu-latest
+timeout-minutes: 45
 
 steps:
-  - uses: actions/checkout@v4
+  - name: Download project
+    uses: actions/checkout@v4
 
   - name: Extract game
     run: |
+      set -e
       mkdir -p app
       unzip -q game-music.zip -d app
-
-  - name: Check project files
-    run: |
       test -f app/myket-game/config.xml
-      test -d app/myket-game/myket-iab-plugin
+      test -d app/myket-game/www
 
-  - name: Portrait and signing key
-    env:
-      KS_PASS: ${{ secrets.KS_PASS }}
-      KS_ALIAS: ${{ secrets.KS_ALIAS }}
-      KS_KEYPASS: ${{ secrets.KS_KEYPASS }}
-    shell: bash
-    run: |
-      set -e
-      sed -i 's/value="landscape"/value="portrait"/' app/myket-game/config.xml
-
-      KS=$(find . -maxdepth 1 -type f \( -name "*.jks" -o -name "*.keystore" \) -print -quit)
-
-      if [ -n "$KS" ]; then
-        cp "$KS" app/myket-game/game.keystore
-        python3 -c "import json,os; json.dump({'android':{'release':{'keystore':'game.keystore','storePassword':os.environ['KS_PASS'],'alias':os.environ['KS_ALIAS'],'password':os.environ['KS_KEYPASS'],'keystoreType':''}}}, open('app/myket-game/build.json','w'))"
-      fi
-
-  - uses: actions/setup-node@v4
+  - name: Setup Node
+    uses: actions/setup-node@v4
     with:
-      node-version: 20
+      node-version: 20.17.0
 
-  - uses: actions/setup-java@v4
+  - name: Setup Java
+    uses: actions/setup-java@v4
     with:
       distribution: temurin
       java-version: 17
 
-  - uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: 8.10.2
-
   - name: Install Android SDK
     run: |
-      yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-      "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;33.0.2" "platforms;android-33"
+      yes | sdkmanager --licenses >/dev/null || true
+      sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
   - name: Install Cordova
     run: npm install -g cordova@12
 
-  - name: Build APK
-    shell: bash
+  - name: Prepare Android project
     working-directory: app/myket-game
     run: |
+      set -e
+      cordova platform add android@15.0.0
+
+      if [ -d myket-iab-plugin ]; then
+        cordova plugin add ./myket-iab-plugin
+      else
+        echo "Local Myket plugin folder not found; checking project plugins."
+        cordova plugin ls
+      fi
+
+  - name: Build release APK
+    working-directory: app/myket-game
+    shell: bash
+    run: |
       set -o pipefail
-      cordova platform add android@12
-      cordova plugin add ./myket-iab-plugin
       cordova build android --release 2>&1 | tee build.log
+
+  - name: Save build logs
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: build-diagnostics
+      path: |
+        app/myket-game/build.log
+        app/myket-game/platforms/android/cordova/
+      if-no-files-found: ignore
+      retention-days: 7
 
   - name: Upload APK
     if: success()
@@ -75,11 +78,3 @@ steps:
       name: game-apk
       path: app/myket-game/platforms/android/app/build/outputs/apk/release/*.apk
       if-no-files-found: error
-
-  - name: Show build errors
-    if: failure()
-    working-directory: app/myket-game
-    run: |
-      if [ -f build.log ]; then
-        grep -n -E "error:|FAILURE|What went wrong|Could not|not found|does not exist|Unresolved" -A6 build.log | head -80 || true
-      fi
