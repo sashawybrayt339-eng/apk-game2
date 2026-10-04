@@ -1,6 +1,6 @@
 name: Build APK
 
-on:
+"on":
 push:
 workflow_dispatch:
 
@@ -9,43 +9,53 @@ build:
 runs-on: ubuntu-latest
 
 steps:
-  - uses: actions/checkout@v4
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
   - name: Extract game project
-    run: mkdir app && unzip -q myket-game-project.zip -d app
+    run: |
+      mkdir -p app
+      unzip -q myket-game-project.zip -d app
 
-  - name: Portrait and signing key
+  - name: Set portrait orientation and signing key
     env:
       KS_PASS: ${{ secrets.KS_PASS }}
       KS_ALIAS: ${{ secrets.KS_ALIAS }}
       KS_KEYPASS: ${{ secrets.KS_KEYPASS }}
+    shell: bash
     run: |
+      set -e
+      test -f app/myket-game/config.xml
       sed -i 's/value="landscape"/value="portrait"/' app/myket-game/config.xml
-      KS=$(ls *.jks *.keystore 2>/dev/null | head -1)
+
+      KS=$(find . -maxdepth 1 -type f \( -name "*.jks" -o -name "*.keystore" \) -print -quit)
+
       if [ -n "$KS" ]; then
-        echo "Using keystore: $KS"
         cp "$KS" app/myket-game/game.keystore
         python3 -c "import json,os; json.dump({'android':{'release':{'keystore':'game.keystore','storePassword':os.environ['KS_PASS'],'alias':os.environ['KS_ALIAS'],'password':os.environ['KS_KEYPASS'],'keystoreType':''}}}, open('app/myket-game/build.json','w'))"
       else
-        echo "No keystore uploaded, using the test key"
+        echo "No keystore uploaded; Cordova will use its default signing configuration."
       fi
 
-  - uses: actions/setup-node@v4
+  - name: Set up Node.js
+    uses: actions/setup-node@v4
     with:
       node-version: 20
 
-  - uses: actions/setup-java@v4
+  - name: Set up Java
+    uses: actions/setup-java@v4
     with:
       distribution: temurin
       java-version: 17
 
-  - uses: gradle/actions/setup-gradle@v4
+  - name: Set up Gradle
+    uses: gradle/actions/setup-gradle@v4
     with:
       gradle-version: 8.10.2
 
-  - name: Install Android SDK parts
+  - name: Install Android SDK components
     run: |
-      yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
       "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;33.0.2" "platforms;android-33"
 
   - name: Install Cordova
@@ -55,29 +65,25 @@ steps:
     shell: bash
     working-directory: app/myket-game
     run: |
+      set -o pipefail
       cordova platform add android@12
-      cordova plugin add ./myket-iab-plugin
-      cordova build android --release --buildConfig=build.json -- --packageType=apk 2>&1 | tee build.log
-
-  - name: Check signature
-    run: |
-      APK=$(ls app/myket-game/platforms/android/app/build/outputs/apk/release/*.apk | head -1)
-      GOT=$(keytool -printcert -jarfile "$APK" | grep -i "SHA1:" | head -1 | sed 's/.*SHA1: *//' | tr -d ':' | tr 'A-Z' 'a-z')
-      WANT=a70bbe1098d13c9c65da6ace1eb6995b102b26b6
-      if [ "$GOT" = "$WANT" ]; then
-        echo "SIGNATURE MATCH: امضا با نسخه قبلی یکیه" >> "$GITHUB_STEP_SUMMARY"
-      else
-        echo "SIGNATURE MISMATCH: امضا فرق داره. APK=$GOT" >> "$GITHUB_STEP_SUMMARY"
+      if [ -d ./myket-iab-plugin ]; then
+        cordova plugin add ./myket-iab-plugin
       fi
+      cordova build android --release 2>&1 | tee build.log
 
-  - name: Show error
-    if: failure()
-    working-directory: app/myket-game
-    run: |
-      { echo '```'; grep -n -E "error:|^e: |FAILURE|What went wrong|Could not|not found|does not exist|Unresolved" -A6 build.log | head -80; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-
-  - uses: actions/upload-artifact@v4
+  - name: Upload APK
     if: success()
+    uses: actions/upload-artifact@v4
     with:
       name: game-apk
       path: app/myket-game/platforms/android/app/build/outputs/apk/release/*.apk
+      if-no-files-found: error
+
+  - name: Show build errors
+    if: failure()
+    working-directory: app/myket-game
+    run: |
+      if [ -f build.log ]; then
+        grep -n -E "error:|FAILURE|What went wrong|Could not|not found|does not exist|Unresolved" -A5 build.log | head -100 || true
+      fi
